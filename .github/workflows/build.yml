@@ -59,6 +59,15 @@ jobs:
       # cài đặt gọn) vào app — khách khỏi cần tự cài Ollama riêng. Khách đã tự
       # cài Ollama sẵn (vd để dùng GPU) thì app tự phát hiện port 11434 đang
       # có người dùng và bỏ qua bản đóng gói (xem src-tauri/src/lib.rs).
+      # CHỈ lấy đúng file thư viện (.dylib/.so/.dll) — KHÔNG lấy thêm
+      # llama-server/llama-quantize (2 binary phụ Ollama không cần cho
+      # `serve` chat bình thường). Lần build trước đưa cả 2 binary đó +
+      # license/text files vào resources làm "linuxdeploy" (công cụ đóng
+      # AppImage) lỗi "failed to run linuxdeploy" — nghi do nó cố xử lý các
+      # executable lạ nằm trong thư mục resources. Cũng giữ nguyên symlink
+      # (vd libggml-base.so -> libggml-base.so.0 -> ....so.0.22.0) bằng
+      # `cp -P` thay vì để find/cp mặc định bỏ qua symlink — thiếu symlink
+      # này có thể khiến 1 lib khác không tìm ra dependency lúc chạy thật.
       - name: Tải Ollama đóng gói sẵn (macOS, CPU-only)
         if: matrix.platform == 'macos-latest'
         run: |
@@ -67,7 +76,7 @@ jobs:
           tar -xzf /tmp/ollama.tgz -C /tmp/ollama-extract
           cp /tmp/ollama-extract/ollama "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
           chmod +x "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
-          find /tmp/ollama-extract -maxdepth 1 -type f ! -name ollama -exec cp {} src-tauri/resources/ollama-libs/ \;
+          find /tmp/ollama-extract -maxdepth 1 -name "*.dylib" -exec cp -P {} src-tauri/resources/ollama-libs/ \;
 
       - name: Tải Ollama đóng gói sẵn (Linux, CPU-only)
         if: matrix.platform == 'ubuntu-22.04'
@@ -78,7 +87,7 @@ jobs:
           zstd -d /tmp/ollama.tar.zst -c | tar -xf - -C /tmp/ollama-extract
           cp /tmp/ollama-extract/bin/ollama "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
           chmod +x "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
-          find /tmp/ollama-extract/lib/ollama -maxdepth 1 -type f -exec cp {} src-tauri/resources/ollama-libs/ \;
+          find /tmp/ollama-extract/lib/ollama -maxdepth 1 -name "*.so*" -exec cp -P {} src-tauri/resources/ollama-libs/ \;
 
       - name: Tải Ollama đóng gói sẵn (Windows, CPU-only)
         if: matrix.platform == 'windows-latest'
@@ -89,7 +98,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "src-tauri\binaries" | Out-Null
           New-Item -ItemType Directory -Force -Path "src-tauri\resources\ollama-libs" | Out-Null
           Copy-Item "$env:TEMP\ollama-extract\ollama.exe" "src-tauri\binaries\ollama-${{ matrix.target_triple }}.exe"
-          Get-ChildItem "$env:TEMP\ollama-extract\lib\ollama" -File | ForEach-Object {
+          Get-ChildItem "$env:TEMP\ollama-extract\lib\ollama" -File -Filter "*.dll" | ForEach-Object {
             Copy-Item $_.FullName "src-tauri\resources\ollama-libs\"
           }
 
