@@ -3,6 +3,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAt: number;
+  /** Ảnh đính kèm — data URL đầy đủ (data:image/...;base64,...), để hiển thị
+   * trực tiếp bằng <img>. Lúc gọi Ollama thì bỏ prefix (lib/ollama.ts
+   * stripDataUrlPrefix), Ollama chỉ nhận base64 thuần. */
+  images?: string[];
 }
 
 export interface ChatSession {
@@ -24,4 +28,7 @@ export interface LocalModel {
   description: string;
   status: ModelStatus;
   progress?: number;
+  /** Model hiểu được ảnh (multimodal) — dùng để tự route tin nhắn có đính kèm
+   * ảnh sang model này, không cần khách tự chọn. */
+  vision?: boolean;
 }
