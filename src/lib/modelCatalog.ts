@@ -30,4 +30,22 @@ export const MODEL_CATALOG: LocalModel[] = [
     description: 'Trả lời chất lượng cao hơn, cần máy khá mạnh.',
     status: 'not_downloaded',
   },
+  {
+    id: 'gpt-oss:20b',
+    name: 'GPT-OSS 20B',
+    paramSize: '20B',
+    fileSize: '13 GB',
+    ramRequirement: 'Từ 16 GB RAM',
+    description: 'Model mã nguồn mở của OpenAI, suy luận mạnh.',
+    status: 'not_downloaded',
+  },
+  {
+    id: 'gpt-oss:120b',
+    name: 'GPT-OSS 120B',
+    paramSize: '120B',
+    fileSize: '65 GB',
+    ramRequirement: 'Từ 64 GB RAM',
+    description: 'Bản lớn nhất của OpenAI mã nguồn mở — cần máy rất mạnh (workstation/server).',
+    status: 'not_downloaded',
+  },
 ];
