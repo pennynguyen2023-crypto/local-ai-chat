@@ -79,9 +79,19 @@ export async function deleteModel(name: string): Promise<void> {
   if (!res.ok && res.status !== 404) throw new Error(`Ollama trả lỗi ${res.status} khi xóa model`);
 }
 
+/** ChatMessage.images lưu data URL đầy đủ (để <img> hiển thị được thẳng) —
+ * Ollama /api/chat chỉ nhận base64 thuần, phải bỏ phần "data:...;base64,". */
+export function stripDataUrlPrefix(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',');
+  return idx === -1 ? dataUrl : dataUrl.slice(idx + 1);
+}
+
 export interface OllamaChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** Base64 KHÔNG có prefix "data:image/...;base64," — model vision (Qwen
+   * 2.5 VL) đọc trực tiếp field này. */
+  images?: string[];
 }
 
 /**

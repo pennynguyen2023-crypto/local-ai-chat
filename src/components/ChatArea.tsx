@@ -1,17 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Paperclip, Sparkles, WifiOff } from 'lucide-react';
+import { ArrowUp, Paperclip, Sparkles, WifiOff, X } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { ChatSession, LocalModel } from '../types';
 import ModelSelector from './ModelSelector';
 
 interface ChatAreaProps {
   chat: ChatSession | null;
-  onSend: (text: string) => void;
+  onSend: (text: string, images?: string[]) => void;
   downloadedModels: LocalModel[];
   activeModelId: string | null;
   onSelectModel: (id: string) => void;
   onOpenSettings: () => void;
   isGenerating: boolean;
   ollamaOffline: boolean;
+}
+
+interface Attachment {
+  id: string;
+  dataUrl: string;
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 export default function ChatArea({
@@ -25,7 +41,10 @@ export default function ChatArea({
   ollamaOffline,
 }: ChatAreaProps) {
   const [text, setText] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hasModel = downloadedModels.length > 0;
   const canSend = hasModel && !isGenerating && !ollamaOffline;
   const messages = chat?.messages ?? [];
@@ -34,15 +53,42 @@ export default function ChatArea({
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages.length, messages[messages.length - 1]?.content]);
 
+  async function addImageFiles(files: File[]) {
+    const images = files.filter((f) => f.type.startsWith('image/'));
+    if (images.length === 0) return;
+    const withUrls = await Promise.all(
+      images.map(async (f) => ({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, dataUrl: await fileToDataUrl(f) })),
+    );
+    setAttachments((prev) => [...prev, ...withUrls]);
+  }
+
   function handleSend() {
     const value = text.trim();
-    if (!value || !canSend) return;
-    onSend(value);
+    if ((!value && attachments.length === 0) || !canSend) return;
+    onSend(value, attachments.length > 0 ? attachments.map((a) => a.dataUrl) : undefined);
     setText('');
+    setAttachments([]);
   }
 
   return (
-    <main className="flex h-full min-w-0 flex-1 flex-col bg-[var(--bg)]">
+    <main
+      className="relative flex h-full min-w-0 flex-1 flex-col bg-[var(--bg)]"
+      onDragOver={(e) => {
+        e.preventDefault();
+        if (e.dataTransfer.types.includes('Files')) setIsDraggingFile(true);
+      }}
+      onDragLeave={() => setIsDraggingFile(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsDraggingFile(false);
+        addImageFiles(Array.from(e.dataTransfer.files));
+      }}
+    >
+      {isDraggingFile && (
+        <div className="pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-2xl border-2 border-dashed border-[var(--accent)] bg-[var(--accent-soft)]/60">
+          <span className="text-sm font-medium text-[var(--accent)]">Thả ảnh vào đây</span>
+        </div>
+      )}
       {ollamaOffline && (
         <div className="flex items-center justify-center gap-2 bg-[var(--danger)]/10 px-4 py-2 text-xs font-medium text-[var(--danger)]">
           <WifiOff size={13} />
@@ -65,13 +111,28 @@ export default function ChatArea({
             {messages.map((m) => (
               <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
-                  className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed ${
-                    m.role === 'user'
-                      ? 'bg-[var(--accent)] text-white'
-                      : 'bg-[var(--bg-input)] text-[var(--text)]'
+                  className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed ${
+                    m.role === 'user' ? 'bg-[var(--accent)] text-white' : 'bg-[var(--bg-input)] text-[var(--text)]'
                   }`}
                 >
-                  {m.content || (isGenerating && m.role === 'assistant' ? <TypingDots /> : '')}
+                  {m.images && m.images.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1.5">
+                      {m.images.map((src, i) => (
+                        <img key={i} src={src} alt="" className="h-24 w-24 rounded-lg object-cover" />
+                      ))}
+                    </div>
+                  )}
+                  {m.role === 'assistant' ? (
+                    m.content ? (
+                      <div className="markdown-body">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      isGenerating && <TypingDots />
+                    )
+                  ) : (
+                    <span className="whitespace-pre-wrap">{m.content}</span>
+                  )}
                 </div>
               </div>
             ))}
@@ -82,24 +143,61 @@ export default function ChatArea({
       <div className="px-6 pb-5 pt-2">
         <div className="mx-auto max-w-2xl">
           <div className="rounded-3xl border border-[var(--border)] bg-[var(--bg-input)] p-2.5 shadow-sm">
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-1.5 px-1">
+                {attachments.map((a) => (
+                  <div key={a.id} className="group relative">
+                    <img src={a.dataUrl} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                    <button
+                      onClick={() => setAttachments((prev) => prev.filter((x) => x.id !== a.id))}
+                      className="absolute -right-1.5 -top-1.5 rounded-full bg-[var(--bg)] p-0.5 text-[var(--text-muted)] shadow hover:text-[var(--danger)]"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onPaste={(e) => {
+                const files = Array.from(e.clipboardData.items)
+                  .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+                  .map((it) => it.getAsFile())
+                  .filter((f): f is File => !!f);
+                if (files.length > 0) {
+                  e.preventDefault();
+                  addImageFiles(files);
+                }
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
                   handleSend();
                 }
               }}
-              placeholder={hasModel ? 'Nhắn gì đó...' : 'Tải model ở Cài đặt để bắt đầu trò chuyện'}
+              placeholder={hasModel ? 'Nhắn gì đó, hoặc dán/kéo thả ảnh vào đây...' : 'Tải model ở Cài đặt để bắt đầu trò chuyện'}
               disabled={!hasModel || ollamaOffline}
               rows={1}
               className="max-h-40 w-full resize-none bg-transparent px-2 py-1.5 text-[15px] outline-none placeholder:text-[var(--text-faint)] disabled:cursor-not-allowed"
             />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                addImageFiles(Array.from(e.target.files ?? []));
+                if (fileInputRef.current) fileInputRef.current.value = '';
+              }}
+            />
             <div className="flex items-center justify-between px-1 pt-1">
               <div className="flex items-center gap-2">
                 <button
-                  title="Đính kèm tệp"
+                  title="Đính kèm ảnh"
+                  onClick={() => fileInputRef.current?.click()}
                   className="rounded-full p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-active)]"
                 >
                   <Paperclip size={17} />
@@ -113,7 +211,7 @@ export default function ChatArea({
               </div>
               <button
                 onClick={handleSend}
-                disabled={!canSend || !text.trim()}
+                disabled={!canSend || (!text.trim() && attachments.length === 0)}
                 title={isGenerating ? 'Model đang trả lời...' : undefined}
                 className="rounded-full bg-[var(--accent)] p-2 text-white transition-opacity disabled:opacity-30"
               >

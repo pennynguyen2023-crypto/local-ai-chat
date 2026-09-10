@@ -2,9 +2,20 @@ import { useEffect, useState } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsModal from './components/SettingsModal';
-import { MODEL_CATALOG } from './lib/modelCatalog';
+import { MODEL_CATALOG, VISION_MODEL_ID } from './lib/modelCatalog';
 import { loadJSON, saveJSON, uid } from './lib/storage';
-import { listLocalModels, pullModel, deleteModel, chatStream, OllamaUnreachableError, type OllamaChatMessage } from './lib/ollama';
+import {
+  listLocalModels,
+  pullModel,
+  deleteModel,
+  chatStream,
+  stripDataUrlPrefix,
+  OllamaUnreachableError,
+  type OllamaChatMessage,
+} from './lib/ollama';
+import { loadPersona, buildPersonaSystemPrompt } from './lib/persona';
+import { searchRelevantChunks, buildContextSystemPrompt } from './lib/memoryDocs';
+import { stripCJK } from './lib/textFilter';
 import type { ChatSession, LocalModel } from './types';
 
 const CHATS_KEY = 'localchat:chats';
@@ -68,13 +79,12 @@ export default function App() {
 
   const downloadedModels = models.filter((m) => m.status === 'downloaded');
 
-  // Mặc định tự chọn model nếu chưa chọn cái nào (đúng yêu cầu: "mặc định là
-  // model được tải nếu chỉ có tải 1 model") — cũng tự sửa nếu model đang chọn
-  // đã bị xóa ở nơi khác.
+  // KHÔNG tự chọn model mặc định — máy mới cài phải trống hoàn toàn, khách tự
+  // chọn model muốn dùng (chọn model chưa tải sẽ tự tải về rồi dùng luôn, xem
+  // handleDownload). Chỉ tự bỏ chọn nếu model đang dùng bị xóa ở nơi khác.
   useEffect(() => {
-    if (downloadedModels.length === 0) return;
-    if (!activeModelId || !downloadedModels.some((m) => m.id === activeModelId)) {
-      setActiveModelId(downloadedModels[0].id);
+    if (activeModelId && !downloadedModels.some((m) => m.id === activeModelId)) {
+      setActiveModelId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [downloadedModels.map((m) => m.id).join(',')]);
@@ -93,12 +103,65 @@ export default function App() {
     return chat;
   }
 
-  async function handleSend(text: string) {
-    if (!activeModelId) return;
+  async function handleSend(text: string, images?: string[]) {
+    const hasImages = !!images && images.length > 0;
+
+    // Có ảnh -> tự route sang model hiểu ảnh, chạy ẩn, không cần khách chọn
+    // tay. Không có model đó thì báo luôn, không âm thầm gửi ảnh cho model
+    // không hiểu ảnh (sẽ trả lời sai/bịa).
+    let modelForThisTurn = activeModelId;
+    if (hasImages) {
+      const visionReady = models.some((m) => m.id === VISION_MODEL_ID && m.status === 'downloaded');
+      if (!visionReady) {
+        const chat = ensureChat();
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === chat.id
+              ? {
+                  ...c,
+                  messages: [
+                    ...c.messages,
+                    {
+                      id: uid(),
+                      role: 'assistant',
+                      content: '⚠️ Cần tải model hiểu ảnh (Qwen 2.5 VL 7B) trong Cài đặt trước khi gửi ảnh nhé.',
+                      createdAt: Date.now(),
+                    },
+                  ],
+                }
+              : c,
+          ),
+        );
+        return;
+      }
+      modelForThisTurn = VISION_MODEL_ID;
+    }
+    if (!modelForThisTurn) return;
+
     const chat = ensureChat();
-    const userMsg = { id: uid(), role: 'user' as const, content: text, createdAt: Date.now() };
-    const title = chat.messages.length === 0 ? text.slice(0, 40) : chat.title;
-    const historyForModel: OllamaChatMessage[] = [...chat.messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
+    const userMsg = { id: uid(), role: 'user' as const, content: text, createdAt: Date.now(), images };
+    const title = chat.messages.length === 0 ? (text || 'Ảnh đính kèm').slice(0, 40) : chat.title;
+
+    // System prompt xưng hô/emoji/định dạng — CỐ ĐỊNH cho mọi model, không
+    // lưu vào lịch sử chat hiển thị (chỉ gửi kèm mỗi lần gọi model).
+    const systemMessages: OllamaChatMessage[] = [{ role: 'system', content: buildPersonaSystemPrompt(loadPersona()) }];
+
+    // Tìm đoạn tài liệu liên quan (nếu có) — chỉ vài đoạn liên quan nhất,
+    // không nhét cả file, giữ context window thấp.
+    if (text.trim()) {
+      const relevantChunks = await searchRelevantChunks(text);
+      const contextPrompt = buildContextSystemPrompt(relevantChunks);
+      if (contextPrompt) systemMessages.push({ role: 'system', content: contextPrompt });
+    }
+
+    const historyForModel: OllamaChatMessage[] = [
+      ...systemMessages,
+      ...[...chat.messages, userMsg].map((m) => ({
+        role: m.role,
+        content: m.content,
+        images: m.images?.map(stripDataUrlPrefix),
+      })),
+    ];
 
     const assistantId = uid();
     setChats((prev) =>
@@ -116,17 +179,21 @@ export default function App() {
 
     setGeneratingChatId(chat.id);
     function appendDelta(delta: string) {
+      // Lọc ký tự tiếng Trung ngay trên từng mẩu chữ stream về — áp dụng cho
+      // MỌI model, không riêng model nào (xem lib/textFilter.ts).
+      const filtered = stripCJK(delta);
+      if (!filtered) return;
       setChats((prev) =>
         prev.map((c) =>
           c.id !== chat.id
             ? c
-            : { ...c, messages: c.messages.map((m) => (m.id === assistantId ? { ...m, content: m.content + delta } : m)) },
+            : { ...c, messages: c.messages.map((m) => (m.id === assistantId ? { ...m, content: m.content + filtered } : m)) },
         ),
       );
     }
 
     try {
-      await chatStream(activeModelId, historyForModel, appendDelta);
+      await chatStream(modelForThisTurn, historyForModel, appendDelta);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Lỗi không xác định khi chat với model.';
       appendDelta(`\n\n⚠️ ${message}`);
@@ -148,6 +215,9 @@ export default function App() {
     setChats((prev) => prev.map((c) => (c.id === id ? { ...c, title } : c)));
   }
 
+  // Tải model = luôn kèm "dùng model này" khi xong (đúng yêu cầu: khách bấm
+  // dùng model nào thì tự tải model đó về, không tách 2 bước / không có model
+  // mặc định nào được tự chọn sẵn).
   async function handleDownload(id: string) {
     setModels((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'downloading', progress: 0 } : m)));
     try {
@@ -155,6 +225,7 @@ export default function App() {
         setModels((prev) => prev.map((m) => (m.id === id ? { ...m, progress: percent } : m)));
       });
       setModels((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'downloaded', progress: 100 } : m)));
+      setActiveModelId(id);
     } catch (err) {
       console.error('[handleDownload] lỗi tải model:', err);
       setModels((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'not_downloaded', progress: 0 } : m)));
@@ -169,10 +240,9 @@ export default function App() {
       return;
     }
     setModels((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'not_downloaded', progress: 0 } : m)));
-    if (activeModelId === id) {
-      const remaining = models.filter((m) => m.status === 'downloaded' && m.id !== id);
-      setActiveModelId(remaining[0]?.id ?? null);
-    }
+    // Không tự chọn model khác thay thế — về lại trạng thái "chưa chọn model
+    // nào", khách tự chọn tiếp (đúng yêu cầu không có model mặc định).
+    if (activeModelId === id) setActiveModelId(null);
   }
 
   return (
