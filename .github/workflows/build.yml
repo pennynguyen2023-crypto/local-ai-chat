@@ -1,0 +1,59 @@
+name: Build desktop app
+
+# Build cả 3 nền tảng (macOS/Windows/Linux) song song trên GitHub — máy Mac
+# đang phát triển KHÔNG tự dựng được .exe/.deb thật (Tauri cross-compile
+# Windows/Linux từ macOS không ổn định), nên đây là cách thực tế duy nhất.
+# Đẩy 1 tag "v*" lên GitHub -> workflow tự chạy, đóng gói .dmg/.msi/.AppImage
+# rồi đính kèm vào 1 GitHub Release nháp — vào Releases, sửa mô tả rồi bấm
+# "Publish" để khách thấy (không tự public để có cơ hội kiểm tra trước).
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+          - platform: ubuntu-22.04
+            args: ''
+          - platform: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài dependency hệ thống (Linux — Tauri cần webkit2gtk)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Cài dependency Node
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Local Chat ${{ github.ref_name }}'
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
