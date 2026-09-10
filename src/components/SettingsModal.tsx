@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { X, Download, Check, Trash2, HardDrive, Cpu, WifiOff, RefreshCw } from 'lucide-react';
 import type { LocalModel } from '../types';
+import MemorySettings from './MemorySettings';
 
 interface SettingsModalProps {
   open: boolean;
@@ -24,6 +26,7 @@ export default function SettingsModal({
   ollamaOffline,
   onRetryConnection,
 }: SettingsModalProps) {
+  const [tab, setTab] = useState<'model' | 'memory'>('model');
   if (!open) return null;
 
   return (
@@ -34,15 +37,39 @@ export default function SettingsModal({
       >
         <div className="flex items-center justify-between border-b border-[var(--border)] px-5 py-4">
           <div>
-            <h2 className="text-base font-semibold text-[var(--text)]">Model</h2>
-            <p className="text-xs text-[var(--text-muted)]">Tải model chạy ngay trên máy của bạn — không cần internet sau khi tải xong.</p>
+            <h2 className="text-base font-semibold text-[var(--text)]">Cài đặt</h2>
+            <p className="text-xs text-[var(--text-muted)]">
+              {tab === 'model'
+                ? 'Tải model chạy ngay trên máy của bạn — không cần internet sau khi tải xong.'
+                : 'Cách xưng hô cố định + tài liệu riêng cho AI dùng khi trả lời.'}
+            </p>
           </div>
           <button onClick={onClose} className="rounded-full p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-hover)]">
             <X size={18} />
           </button>
         </div>
 
-        {ollamaOffline && (
+        <div className="flex gap-1 border-b border-[var(--border)] px-5 pt-2">
+          {(['model', 'memory'] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-t-lg px-3 py-2 text-sm font-medium ${
+                tab === t ? 'border-b-2 border-[var(--accent)] text-[var(--accent)]' : 'text-[var(--text-muted)] hover:text-[var(--text)]'
+              }`}
+            >
+              {t === 'model' ? 'Model' : 'Memory'}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'memory' && (
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            <MemorySettings />
+          </div>
+        )}
+
+        {tab === 'model' && ollamaOffline && (
           <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] bg-[var(--danger)]/10 px-5 py-2.5 text-xs font-medium text-[var(--danger)]">
             <span className="flex items-center gap-1.5">
               <WifiOff size={13} />
@@ -55,6 +82,7 @@ export default function SettingsModal({
           </div>
         )}
 
+        {tab === 'model' && (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
           {models.map((m) => (
             <div key={m.id} className="rounded-xl border border-[var(--border)] p-3.5">
@@ -132,6 +160,7 @@ export default function SettingsModal({
             </div>
           ))}
         </div>
+        )}
       </div>
     </div>
   );
