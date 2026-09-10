@@ -37,6 +37,8 @@
     ],
     "android": {
       "debugApplicationIdSuffix": ".debug"
-    }
+    },
+    "externalBin": ["binaries/ollama"],
+    "resources": ["resources/ollama-libs/**/*"]
   }
 }

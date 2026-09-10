@@ -7,6 +7,16 @@
   ],
   "permissions": [
     "core:default",
-    "autostart:default"
+    "autostart:default",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "binaries/ollama",
+          "sidecar": true,
+          "args": ["serve"]
+        }
+      ]
+    }
   ]
 }

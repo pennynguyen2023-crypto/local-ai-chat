@@ -23,12 +23,16 @@ jobs:
         include:
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
+            target_triple: aarch64-apple-darwin
           - platform: macos-latest
             args: '--target x86_64-apple-darwin'
+            target_triple: x86_64-apple-darwin
           - platform: ubuntu-22.04
             args: ''
+            target_triple: x86_64-unknown-linux-gnu
           - platform: windows-latest
             args: ''
+            target_triple: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -50,6 +54,44 @@ jobs:
 
       - name: Cài dependency Node
         run: npm ci
+
+      # Đóng gói sẵn Ollama (CPU-only, không kèm CUDA/ROCm/Vulkan để giữ file
+      # cài đặt gọn) vào app — khách khỏi cần tự cài Ollama riêng. Khách đã tự
+      # cài Ollama sẵn (vd để dùng GPU) thì app tự phát hiện port 11434 đang
+      # có người dùng và bỏ qua bản đóng gói (xem src-tauri/src/lib.rs).
+      - name: Tải Ollama đóng gói sẵn (macOS, CPU-only)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          curl -sL -o /tmp/ollama.tgz https://github.com/ollama/ollama/releases/latest/download/ollama-darwin.tgz
+          mkdir -p /tmp/ollama-extract src-tauri/binaries src-tauri/resources/ollama-libs
+          tar -xzf /tmp/ollama.tgz -C /tmp/ollama-extract
+          cp /tmp/ollama-extract/ollama "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
+          chmod +x "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
+          find /tmp/ollama-extract -maxdepth 1 -type f ! -name ollama -exec cp {} src-tauri/resources/ollama-libs/ \;
+
+      - name: Tải Ollama đóng gói sẵn (Linux, CPU-only)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get install -y zstd
+          curl -sL -o /tmp/ollama.tar.zst https://github.com/ollama/ollama/releases/latest/download/ollama-linux-amd64.tar.zst
+          mkdir -p /tmp/ollama-extract src-tauri/binaries src-tauri/resources/ollama-libs
+          zstd -d /tmp/ollama.tar.zst -c | tar -xf - -C /tmp/ollama-extract
+          cp /tmp/ollama-extract/bin/ollama "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
+          chmod +x "src-tauri/binaries/ollama-${{ matrix.target_triple }}"
+          find /tmp/ollama-extract/lib/ollama -maxdepth 1 -type f -exec cp {} src-tauri/resources/ollama-libs/ \;
+
+      - name: Tải Ollama đóng gói sẵn (Windows, CPU-only)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/ollama/ollama/releases/latest/download/ollama-windows-amd64.zip" -OutFile "$env:TEMP\ollama.zip"
+          Expand-Archive -Path "$env:TEMP\ollama.zip" -DestinationPath "$env:TEMP\ollama-extract" -Force
+          New-Item -ItemType Directory -Force -Path "src-tauri\binaries" | Out-Null
+          New-Item -ItemType Directory -Force -Path "src-tauri\resources\ollama-libs" | Out-Null
+          Copy-Item "$env:TEMP\ollama-extract\ollama.exe" "src-tauri\binaries\ollama-${{ matrix.target_triple }}.exe"
+          Get-ChildItem "$env:TEMP\ollama-extract\lib\ollama" -File | ForEach-Object {
+            Copy-Item $_.FullName "src-tauri\resources\ollama-libs\"
+          }
 
       - uses: tauri-apps/tauri-action@v0
         env:
