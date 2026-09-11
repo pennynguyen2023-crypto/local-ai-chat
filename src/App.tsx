@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react';
+import type { Update } from '@tauri-apps/plugin-updater';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
 import SettingsModal from './components/SettingsModal';
+import UpdateBanner from './components/UpdateBanner';
+import { checkForUpdate } from './lib/updater';
 import { MODEL_CATALOG, VISION_MODEL_ID } from './lib/modelCatalog';
 import { loadJSON, saveJSON, uid } from './lib/storage';
 import {
@@ -33,9 +36,20 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [ollamaOffline, setOllamaOffline] = useState(false);
   const [generatingChatId, setGeneratingChatId] = useState<string | null>(null);
+  const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   useEffect(() => saveJSON(CHATS_KEY, chats), [chats]);
   useEffect(() => saveJSON(ACTIVE_MODEL_KEY, activeModelId), [activeModelId]);
+
+  // Kiểm tra bản cập nhật mỗi khi mở app — không tự cài, chỉ báo cho khách
+  // biết và để khách chủ động bấm cài (tránh tự ý tải/khởi động lại app
+  // giữa lúc khách đang chat dở).
+  useEffect(() => {
+    checkForUpdate().then((update) => {
+      if (update) setAvailableUpdate(update);
+    });
+  }, []);
 
   // Nguồn sự thật cho "model đã tải" là chính Ollama (đĩa thật), KHÔNG phải
   // localStorage — khách có thể đã pull/xóa model qua terminal, hoặc app mở
@@ -246,7 +260,11 @@ export default function App() {
   }
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div className="flex h-screen w-screen flex-col overflow-hidden">
+      {availableUpdate && !updateDismissed && (
+        <UpdateBanner update={availableUpdate} onDismiss={() => setUpdateDismissed(true)} />
+      )}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
       <Sidebar
         chats={chats}
         activeId={activeChatId}
@@ -267,6 +285,7 @@ export default function App() {
         isGenerating={activeChat?.id === generatingChatId}
         ollamaOffline={ollamaOffline}
       />
+      </div>
       <SettingsModal
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}

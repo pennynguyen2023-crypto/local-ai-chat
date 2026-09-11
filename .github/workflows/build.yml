@@ -105,9 +105,17 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Ký các gói cập nhật (.tar.gz/.zip) bằng key riêng cho app này (đã
+          # `gh secret set` sẵn, KHÔNG liên quan gì tới key ký code Apple/
+          # Windows) — thiếu 2 biến này thì tauri-action vẫn build ra app
+          # bình thường nhưng KHÔNG tạo/ký file latest.json, tính năng tự
+          # cập nhật sẽ không hoạt động.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'LM.RENVIDAI ${{ github.ref_name }}'
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          uploadUpdaterJson: true

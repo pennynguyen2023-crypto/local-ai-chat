@@ -39,6 +39,13 @@
       "debugApplicationIdSuffix": ".debug"
     },
     "externalBin": ["binaries/ollama"],
-    "resources": ["resources/ollama-libs/**/*"]
+    "resources": ["resources/ollama-libs/**/*"],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVFRkYzNjM1NkUyMzE3NEQKUldSTkZ5TnVOVGIvWG5qMnhrZzZUcEx1TTd4NTdObGhvd0ozRGFtaDFzYTVSNTl2M0dBeEJadkUK",
+      "endpoints": ["https://github.com/pennynguyen2023-crypto/local-ai-chat/releases/latest/download/latest.json"]
+    }
   }
 }
