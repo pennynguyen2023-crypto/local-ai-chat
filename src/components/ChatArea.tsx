@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Paperclip, Sparkles, WifiOff, X } from 'lucide-react';
+import { ArrowUp, Paperclip, WifiOff, X } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { ChatSession, LocalModel } from '../types';
 import ModelSelector from './ModelSelector';
+import logo from '../assets/logo.png';
 
 interface ChatAreaProps {
   chat: ChatSession | null;
@@ -97,7 +98,7 @@ export default function ChatArea({
       )}
       {messages.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <Sparkles size={28} className="text-[var(--accent)]" />
+          <img src={logo} alt="" className="h-16 w-16" />
           <h1 className="text-2xl font-medium text-[var(--text)]">Hôm nay bạn muốn làm gì?</h1>
           {!hasModel && !ollamaOffline && (
             <p className="max-w-sm text-sm text-[var(--text-muted)]">
