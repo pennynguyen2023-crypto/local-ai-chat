@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Local Chat",
+  "productName": "LM.RENVIDAI",
   "version": "0.3.2",
   "identifier": "com.pennybuilder.localchat",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Local Chat",
+        "title": "LM.RENVIDAI",
         "width": 1080,
         "height": 720,
         "minWidth": 720,
