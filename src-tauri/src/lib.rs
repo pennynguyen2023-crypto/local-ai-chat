@@ -4,7 +4,8 @@ use std::time::Duration;
 use tauri::path::BaseDirectory;
 use tauri::{Manager, RunEvent};
 use tauri_plugin_autostart::MacosLauncher;
-use tauri_plugin_shell::process::CommandChild;
+use tauri_plugin_log::{Target, TargetKind};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 /// Tiến trình Ollama do CHÍNH app này khởi động (nếu có) — chỉ app tự tắt
@@ -24,13 +25,17 @@ pub fn run() {
     .plugin(tauri_plugin_shell::init())
     .manage(OllamaSidecar(Mutex::new(None)))
     .setup(|app| {
-      if cfg!(debug_assertions) {
-        app.handle().plugin(
-          tauri_plugin_log::Builder::default()
-            .level(log::LevelFilter::Info)
-            .build(),
-        )?;
-      }
+      // Ghi log ra FILE luôn, kể cả bản release (không chỉ lúc `tauri dev`
+      // như trước) — không có bước này thì lúc khách báo lỗi, không có cách
+      // nào biết chuyện gì đang xảy ra bên trong app đã đóng gói. macOS:
+      // ~/Library/Logs/com.pennybuilder.localchat/ ; Windows/Linux: xem
+      // đường dẫn `app_log_dir` Tauri in ra tương ứng từng OS.
+      app.handle().plugin(
+        tauri_plugin_log::Builder::default()
+          .level(log::LevelFilter::Info)
+          .targets([Target::new(TargetKind::LogDir { file_name: None }), Target::new(TargetKind::Stdout)])
+          .build(),
+      )?;
 
       // Mở app là tự bật auto-start khi khởi động máy (đúng yêu cầu: "dù tắt
       // máy thì app desktop vẫn chạy lại khi mở máy lên") — chỉ set 1 lần lúc
@@ -55,20 +60,38 @@ pub fn run() {
             // dùng OLLAMA_LIBRARY_PATH thay vì để Ollama tự đoán theo cấu
             // trúc thư mục tương đối mặc định (dễ vỡ giữa các cách đóng gói
             // khác nhau của Tauri trên từng hệ điều hành).
-            let lib_dir = app
-              .path()
-              .resolve("resources/ollama-libs", BaseDirectory::Resource)
-              .ok();
+            let lib_dir = app.path().resolve("resources/ollama-libs", BaseDirectory::Resource);
+            match &lib_dir {
+              Ok(p) => log::info!("OLLAMA_LIBRARY_PATH sẽ set = {}", p.display()),
+              Err(e) => log::warn!("Không resolve được resources/ollama-libs: {e} — Ollama sẽ tự đoán đường dẫn mặc định, có thể lỗi."),
+            }
             let mut cmd = cmd.arg("serve");
-            if let Some(dir) = &lib_dir {
+            if let Ok(dir) = &lib_dir {
               cmd = cmd.env("OLLAMA_LIBRARY_PATH", dir.to_string_lossy().to_string());
             }
             match cmd.spawn() {
-              Ok((_rx, child)) => {
+              Ok((mut rx, child)) => {
+                log::info!("Đã spawn tiến trình Ollama đóng gói sẵn (pid={}).", child.pid());
                 *app.state::<OllamaSidecar>().0.lock().unwrap() = Some(child);
-                log::info!("Đã tự chạy Ollama đóng gói sẵn cho khách (chưa cài Ollama riêng).");
+                // Log lại toàn bộ stdout/stderr thật của Ollama — trước đây
+                // bỏ qua hoàn toàn (_rx), nên nếu Ollama tự thoát ngay vì lỗi
+                // thiếu thư viện backend, app không hề biết/log lại gì cả.
+                tauri::async_runtime::spawn(async move {
+                  while let Some(event) = rx.recv().await {
+                    match event {
+                      CommandEvent::Stdout(line) => log::info!("[ollama] {}", String::from_utf8_lossy(&line)),
+                      CommandEvent::Stderr(line) => log::warn!("[ollama] {}", String::from_utf8_lossy(&line)),
+                      CommandEvent::Error(err) => log::error!("[ollama] lỗi tiến trình: {err}"),
+                      CommandEvent::Terminated(payload) => {
+                        log::warn!("[ollama] tiến trình đã thoát: {:?}", payload);
+                        break;
+                      }
+                      _ => {}
+                    }
+                  }
+                });
               }
-              Err(e) => log::warn!("Không khởi động được Ollama đóng gói sẵn: {e}"),
+              Err(e) => log::error!("Không khởi động được Ollama đóng gói sẵn: {e}"),
             }
           }
           // Bình thường khi chạy `tauri dev` (chưa tải binary Ollama về) —
