@@ -9,7 +9,7 @@
     "core:default",
     "autostart:default",
     "updater:default",
-    "process:allow-relaunch",
+    "process:default",
     {
       "identifier": "shell:allow-execute",
       "allow": [
